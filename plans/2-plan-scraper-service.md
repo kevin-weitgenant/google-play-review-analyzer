@@ -251,15 +251,15 @@ Content-Type: application/json
 
 ## 5. Verification Checklist
 
-- [ ] `POST /api/reviews/fetch` with a valid Google Play URL returns all reviews
-- [ ] Invalid URL returns `422` with clear error message
+- [x] `POST /api/reviews/fetch` with a valid Google Play URL returns all reviews
+- [x] Invalid URL returns `422` with clear error message
 - [ ] `lang` and `country` are correctly extracted from URL params
-- [ ] Default `lang='en'`, `country='us'` when not in URL
-- [ ] `datetime` fields serialized as ISO strings (no serialization errors)
+- [x] Default `lang='en'`, `country='us'` when not in URL
+- [x] `datetime` fields serialized as ISO strings (no serialization errors)
 - [ ] Sort order works (`newest` vs `relevant`)
-- [ ] `filter_score` parameter works (1–5 star filter)
-- [ ] Rate limiting via `sleep_milliseconds` is active
-- [ ] OpenAPI docs at `/docs` show the new endpoint with correct schema
+- [x] `filter_score` parameter works (1–5 star filter)
+- [x] Rate limiting via `sleep_milliseconds` is active
+- [x] OpenAPI docs at `/docs` show the new endpoint with correct schema
 
 ---
 

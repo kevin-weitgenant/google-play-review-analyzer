@@ -11,7 +11,7 @@ Full-stack app to scrape Google Play reviews, classify sentiment & priority via 
 - **Styling**: Tailwind CSS + Shadcn
 
 
-
+``` mermaid
 flowchart TD
 
 A[React Frontend] -->|Enter app name or link| B[FastAPI Backend]
@@ -30,7 +30,7 @@ B --> A
 
 A --> I[Display Reviews]
 I --> J[Sentiment + Priority + Suggested Response]
-
+```
 
 ## Getting Started
 

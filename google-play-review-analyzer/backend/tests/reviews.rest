@@ -1,0 +1,12 @@
+@baseUrl = http://localhost:8000
+
+
+
+### Fetch reviews — valid URL (Cookie Run: OvenBreak)
+POST {{baseUrl}}/api/reviews/fetch
+Content-Type: application/json
+
+{
+    "url": "https://play.google.com/store/apps/details?id=com.devsisters.cos"
+}
+
