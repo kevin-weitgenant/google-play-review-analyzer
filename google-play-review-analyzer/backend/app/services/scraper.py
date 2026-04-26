@@ -2,7 +2,9 @@
 
 from urllib.parse import urlparse, parse_qs
 
-from google_play_scraper import app as app_detail, Sort, reviews_all
+from google_play_scraper import app as app_detail, Sort, reviews_all, reviews
+
+from app.models.scraper import GooglePlayReview
 
 
 VALID_SORTS = {
@@ -43,10 +45,10 @@ def fetch_all_reviews(
     country: str = "us",
     sort: str = "newest",
     filter_score: int | None = None,
-) -> list[dict]:
+) -> list[GooglePlayReview]:
     """Fetch all reviews for a given app using google-play-scraper.
 
-    Returns a list of review dicts with datetime fields converted to ISO strings.
+    Returns a list of validated GooglePlayReview models.
     """
     sort_enum = VALID_SORTS.get(sort)
     if sort_enum is None:
@@ -66,32 +68,40 @@ def fetch_all_reviews(
 
     raw_reviews = reviews_all(**kwargs)
 
-    # Convert datetime fields to ISO strings for JSON serialization
-    for review in raw_reviews:
-        for dt_field in ("at", "repliedAt"):
-            val = review.get(dt_field)
-            if val is not None:
-                review[dt_field] = val.isoformat()
+    return [GooglePlayReview.model_validate(r) for r in raw_reviews]
 
-    # Normalize keys to snake_case for our API response
-    normalized = []
-    for r in raw_reviews:
-        normalized.append(
-            {
-                "review_id": r.get("reviewId", ""),
-                "user_name": r.get("userName", ""),
-                "content": r.get("content", ""),
-                "score": r.get("score", 0),
-                "thumbs_up_count": r.get("thumbsUpCount", 0),
-                "review_created_version": r.get("reviewCreatedVersion"),
-                "at": r.get("at", ""),
-                "reply_content": r.get("replyContent"),
-                "replied_at": r.get("repliedAt"),
-                "app_version": r.get("appVersion"),
-            }
+
+def fetch_reviews_paginated(
+    app_id: str,
+    lang: str = "en",
+    country: str = "us",
+    sort: str = "newest",
+    filter_score: int | None = None,
+    count: int = 25,
+) -> list[GooglePlayReview]:
+    """Fetch a limited number of reviews (first page only).
+
+    Uses reviews() instead of reviews_all() to avoid downloading
+    the entire review history. Returns up to `count` reviews.
+    """
+    sort_enum = VALID_SORTS.get(sort)
+    if sort_enum is None:
+        raise ValueError(
+            f"Invalid sort '{sort}'. Must be one of: {', '.join(VALID_SORTS.keys())}"
         )
 
-    return normalized
+    kwargs = {
+        "app_id": app_id,
+        "lang": lang,
+        "country": country,
+        "sort": sort_enum,
+        "count": count,
+    }
+    if filter_score is not None:
+        kwargs["filter_score_with"] = filter_score
+
+    result, _continuation_token = reviews(**kwargs)
+    return [GooglePlayReview.model_validate(r) for r in result]
 
 
 def get_app_name(app_id: str, lang: str = "en", country: str = "us") -> str:

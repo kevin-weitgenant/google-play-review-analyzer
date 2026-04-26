@@ -1,0 +1,412 @@
+# Routers & Schemas — Deep Dive
+
+This document explains how the FastAPI routers and Pydantic schemas work together to define the API layer of the backend.
+
+---
+
+## Table of Contents
+
+- [How Routers Connect to the App](#how-routers-connect-to-the-app)
+- [Router: Reviews](#router-reviews)
+  - [GET /api/reviews/](#get-apireviews)
+  - [POST /api/reviews/fetch](#post-apireviewsfetch)
+- [Router: Analysis](#router-analysis)
+  - [POST /api/analysis/{review_id}](#post-apianalysisreview_id)
+- [Schemas (app/schemas/api.py)](#schemas-appschemasapipy)
+  - [FetchReviewsRequest](#fetchreviewsrequest)
+  - [ReviewResponse](#reviewresponse)
+  - [FetchReviewsResponse](#fetchreviewsresponse)
+- [Models vs Schemas — What's the difference?](#models-vs-schemas--whats-the-difference)
+  - [Models (app/models/)](#models-appmodels)
+  - [Schemas (app/schemas/)](#schemas-appschemas)
+- [How It All Flows](#how-it-all-flows)
+- [How the OpenAPI Spec Gets Generated](#how-the-openapi-spec-gets-generated)
+
+---
+
+## How Routers Connect to the App
+
+In `app/main.py`, the FastAPI app is created and two routers are registered:
+
+```python
+app.include_router(reviews.router, prefix="/api")
+app.include_router(analysis.router, prefix="/api")
+```
+
+Each router defines its own **internal prefix** and **tag**:
+
+| Router file | Internal prefix | Tag | Final base path |
+|---|---|---|---|
+| `routers/reviews.py` | `prefix="/reviews"` | `tags=["reviews"]` | `/api/reviews` |
+| `routers/analysis.py` | `prefix="/analysis"` | `tags=["analysis"]` | `/api/analysis` |
+
+The `prefix="/api"` in `include_router()` is **added on top** of each router's own prefix. So a route defined as `@router.post("/fetch")` inside the reviews router ends up at `POST /api/reviews/fetch`.
+
+Tags group endpoints together in the auto-generated Swagger docs at `/docs`.
+
+---
+
+## Router: Reviews
+
+**File**: `app/routers/reviews.py`
+
+This router handles fetching Google Play reviews. It imports from two places:
+- **Schemas** (`app/schemas/api.py`) — defines the shape of request/response data
+- **Services** (`app/services/scraper.py`) — contains the actual scraping logic
+
+### GET /api/reviews/
+
+```python
+@router.get("/")
+def get_reviews():
+    return {"message": "TODO: fetch reviews from database"}
+```
+
+- **Status**: Stub — not implemented yet
+- **Purpose (future)**: Will query the Supabase database and return previously fetched/stored reviews
+- **Why it exists now**: Placeholder so the route shows up in the OpenAPI spec and can be planned around
+
+### POST /api/reviews/fetch
+
+```python
+@router.post("/fetch", response_model=FetchReviewsResponse)
+def fetch_reviews(request: FetchReviewsRequest):
+```
+
+This is the **main working endpoint**. Here's what each piece does:
+
+#### The `response_model=FetchReviewsResponse` part
+
+Tells FastAPI: "The response from this endpoint will always match the `FetchReviewsResponse` schema." This means:
+- FastAPI **validates** the returned data against the schema (fields exist, correct types)
+- FastAPI **filters out** any extra fields that aren't in the schema
+- The OpenAPI spec at `/docs` shows the exact response shape
+- Orval (on the frontend) reads this and generates matching TypeScript types
+
+#### The `request: FetchReviewsRequest` part
+
+FastAPI automatically:
+1. Reads the incoming JSON body
+2. Validates it against `FetchReviewsRequest` (required fields present, types correct, constraints like `ge=1` / `le=5` are checked)
+3. If validation fails, returns a **422 Unprocessable Entity** with a detailed error message before the function even runs
+4. Passes the validated, typed object as the `request` parameter
+
+#### The execution flow inside the endpoint
+
+```
+Step 1: Parse the URL
+  extract_app_id(request.url)
+  → Extracts app_id, lang, country from the Google Play URL
+  → Raises ValueError if URL is invalid → we catch it and return 422
+
+Step 2: Get the app name
+  get_app_name(app_id, lang, country)
+  → Calls google-play-scraper's app() function
+  → Returns the app's display title (e.g., "Cookie Run: OvenBreak")
+  → On failure → returns 502 (bad gateway — upstream service failed)
+
+Step 3: Fetch all reviews
+  fetch_all_reviews(app_id, lang, country, sort, filter_score)
+  → Uses google-play-scraper's reviews_all() with pagination
+  → 500ms delay between pages to avoid rate-limiting
+  → Converts datetime → ISO strings, normalizes camelCase → snake_case
+  → Returns a list of review dicts
+  → ValueError → 422 (bad sort value), other errors → 502
+
+Step 4: Build and return the response
+  FetchReviewsResponse(app_id=..., app_name=..., total_reviews=..., reviews=...)
+  → FastAPI validates this against the schema and sends it as JSON
+```
+
+#### Error responses
+
+| Status code | When | Example |
+|---|---|---|
+| `422` | Invalid URL, missing `id` param, bad sort value | `{"detail": "Invalid Google Play URL: missing 'id' query parameter..."}` |
+| `422` | Body fails Pydantic validation (missing `url`, `filter_score` out of range) | Auto-generated by FastAPI with field-level error details |
+| `502` | Google Play scraper fails (network error, app not found) | `{"detail": "Failed to fetch reviews: ..."}` |
+
+#### Example request & response
+
+**Request:**
+```json
+POST /api/reviews/fetch
+{
+  "url": "https://play.google.com/store/apps/details?id=com.devsisters.cos&hl=pt_BR&gl=br",
+  "sort": "newest",
+  "filter_score": null
+}
+```
+
+**Response:**
+```json
+{
+  "app_id": "com.devsisters.cos",
+  "app_name": "Cookie Run: OvenBreak",
+  "total_reviews": 1520,
+  "reviews": [
+    {
+      "review_id": "gp:AOqpTOF...",
+      "user_name": "John",
+      "content": "Great game but crashes sometimes",
+      "score": 3,
+      "thumbs_up_count": 12,
+      "review_created_version": "8.51",
+      "at": "2026-04-20T14:30:00",
+      "reply_content": "We're sorry to hear that...",
+      "replied_at": "2026-04-21T09:00:00",
+      "app_version": "8.51"
+    },
+    ...
+  ]
+}
+```
+
+---
+
+## Router: Analysis
+
+**File**: `app/routers/analysis.py`
+
+### POST /api/analysis/{review_id}
+
+```python
+@router.post("/{review_id}")
+def analyze_review(review_id: str):
+    return {"message": f"TODO: analyze review {review_id}"}
+```
+
+- **Status**: Stub — not implemented yet
+- **Purpose (future)**: Will send a review's text to the Groq LLM and return:
+  - `sentiment` (positive / neutral / negative)
+  - `priority` (low / medium / high)
+  - `suggested_response` (AI-generated reply text)
+- The `{review_id}` path parameter will be used to look up the review from the database, send its content to Groq, and return an `AnalysisResult`
+- The models `AnalysisRequest` and `AnalysisResult` in `app/models/analysis.py` are already defined for this future implementation
+
+---
+
+## Schemas (`app/schemas/api.py`)
+
+These Pydantic models serve as **the contract between the frontend and backend**. They define:
+1. What the API expects as input (request)
+2. What the API guarantees as output (response)
+3. The auto-generated OpenAPI spec (which Orval reads to generate TypeScript code)
+
+### FetchReviewsRequest
+
+```python
+class FetchReviewsRequest(BaseModel):
+    url: str = Field(
+        ...,                                          # ... = required field
+        description="Full Google Play Store URL",
+        examples=["https://play.google.com/store/apps/details?id=com.devsisters.cos"],
+    )
+    sort: str = Field(
+        default="newest",                             # optional, defaults to "newest"
+        description="Sort order: 'newest' or 'relevant'",
+        examples=["newest", "relevant"],
+    )
+    filter_score: int | None = Field(
+        default=None,                                 # optional, defaults to None (no filter)
+        description="Filter by star rating (1-5). None means all scores.",
+        ge=1,                                         # greater than or equal to 1
+        le=5,                                         # less than or equal to 5
+    )
+```
+
+| Field | Type | Required | Default | Constraints | Purpose |
+|---|---|---|---|---|---|
+| `url` | `str` | ✅ Yes | — | Must be a valid Google Play URL with `?id=` param | The app to scrape reviews from |
+| `sort` | `str` | ❌ No | `"newest"` | Should be `"newest"` or `"relevant"` | Review sort order |
+| `filter_score` | `int` or `None` | ❌ No | `None` | 1–5 if provided | Only fetch reviews with this star rating |
+
+**What `Field(...)` does:**
+- The first argument (`...`) means the field is **required**. Using a value like `default="newest"` makes it optional.
+- `description` shows up in the Swagger docs at `/docs`
+- `examples` show up in the OpenAPI spec as sample values
+- `ge` and `le` add **validation constraints** — if someone sends `filter_score: 0` or `filter_score: 6`, Pydantic automatically rejects it with a 422 error
+
+### ReviewResponse
+
+```python
+class ReviewResponse(BaseModel):
+    review_id: str
+    user_name: str
+    content: str
+    score: int
+    thumbs_up_count: int
+    review_created_version: str | None
+    at: str                                          # ISO datetime string
+    reply_content: str | None
+    replied_at: str | None                           # ISO datetime string
+    app_version: str | None
+```
+
+This is the shape of a **single review** in the API response.
+
+| Field | Type | Nullable | Source |
+|---|---|---|---|
+| `review_id` | `str` | No | Google's unique review ID (`reviewId` from scraper) |
+| `user_name` | `str` | No | Display name of the reviewer |
+| `content` | `str` | No | The review text |
+| `score` | `int` | No | Star rating 1–5 |
+| `thumbs_up_count` | `int` | No | How many people found the review helpful |
+| `review_created_version` | `str` or `None` | Yes | App version the user had when reviewing |
+| `at` | `str` | No | When the review was posted (ISO 8601 string like `"2026-04-20T14:30:00"`) |
+| `reply_content` | `str` or `None` | Yes | Developer's reply text (null if unreplied) |
+| `replied_at` | `str` or `None` | Yes | When the developer replied (null if unreplied) |
+| `app_version` | `str` or `None` | Yes | App version at time of review |
+
+**Note on `str | None`**: Fields marked with `| None` can be `null` in the JSON. Not all reviews have developer replies or version info. When Pydantic sees a field without a default value and typed as `str | None`, it defaults to `None`.
+
+**Why `at` is a `str` and not `datetime`**: The scraper returns Python `datetime` objects, but JSON doesn't have a datetime type. The scraper service converts them to ISO strings before they reach this schema. The OpenAPI spec will show these as `type: string`, and Orval generates them as `string` in TypeScript.
+
+### FetchReviewsResponse
+
+```python
+class FetchReviewsResponse(BaseModel):
+    app_id: str
+    app_name: str
+    total_reviews: int
+    reviews: list[ReviewResponse]
+```
+
+This wraps everything into the **top-level response**.
+
+| Field | Type | Purpose |
+|---|---|---|
+| `app_id` | `str` | The Google Play app ID (e.g., `"com.devsisters.cos"`) |
+| `app_name` | `str` | Human-readable app title (e.g., `"Cookie Run: OvenBreak"`) |
+| `total_reviews` | `int` | How many reviews were fetched (length of the reviews list) |
+| `reviews` | `list[ReviewResponse]` | Array of review objects, each matching `ReviewResponse` |
+
+The `reviews` field is a **nested schema** — FastAPI/OpenAPI understands this and generates the full nested type in the spec, so Orval produces proper TypeScript interfaces.
+
+---
+
+## Models vs Schemas — What's the Difference?
+
+The project has two separate directories for data models. They serve different purposes:
+
+### Models (`app/models/`)
+
+These represent **database entities** — how data is stored in Supabase.
+
+```python
+# app/models/review.py
+class ReviewBase(BaseModel):
+    review_id: str
+    user_name: str
+    content: str
+    score: int
+    app_name: str
+
+class Review(ReviewBase):
+    id: int                                    # database primary key
+    model_config = {"from_attributes": True}   # can be created from ORM objects
+```
+
+```python
+# app/models/analysis.py
+class AnalysisResult(BaseModel):
+    review_id: str
+    sentiment: str       # positive, neutral, negative
+    priority: str        # low, medium, high
+    suggested_response: str
+
+class AnalysisRequest(BaseModel):
+    review_id: str
+```
+
+**Key traits:**
+- `Review` has an `id` field (auto-increment primary key from the database)
+- `from_attributes = True` means it can be created from database row objects (ORM-style)
+- These are **not currently used** — they'll be used when Supabase persistence is implemented
+
+### Schemas (`app/schemas/`)
+
+These represent **API contracts** — what goes over the wire between frontend and backend.
+
+```python
+# app/schemas/api.py
+class FetchReviewsRequest(BaseModel): ...    # what the frontend sends
+class ReviewResponse(BaseModel): ...         # shape of a single review in responses
+class FetchReviewsResponse(BaseModel): ...   # what the backend sends back
+```
+
+**Key traits:**
+- No `id` field (that's a database concern, not an API concern)
+- Has `Field()` with descriptions, examples, and validation constraints
+- Includes fields that come from the scraper but may not be stored in the DB (e.g., `thumbs_up_count`, `reply_content`)
+- These are what FastAPI reads to generate the OpenAPI spec
+
+### Why keep them separate?
+
+```
+Frontend  ←→  Schemas (API layer)  ←→  Router logic  ←→  Models (DB layer)  ←→  Supabase
+```
+
+- **Schemas** can change without affecting the database (e.g., add a field to the API response)
+- **Models** can change without affecting the API (e.g., add a column to the DB)
+- The router translates between them — fetching data via schemas, storing via models
+- This is a common FastAPI pattern that keeps concerns separated
+
+---
+
+## How It All Flows
+
+Here's the complete request lifecycle for `POST /api/reviews/fetch`:
+
+```
+1. Client sends JSON:
+   POST http://localhost:8000/api/reviews/fetch
+   { "url": "https://play.google.com/store/apps/details?id=com.devsisters.cos" }
+
+2. FastAPI receives the request
+   └─ Router matches: reviews.router + prefix="/api" → /api/reviews/fetch ✅
+
+3. Pydantic validates the body against FetchReviewsRequest
+   ├─ url is present ✅
+   ├─ sort defaults to "newest" (not provided)
+   └─ filter_score defaults to None (not provided)
+
+4. Endpoint function runs:
+   ├─ extract_app_id(url) → { app_id: "com.devsisters.cos", lang: "en", country: "us" }
+   ├─ get_app_name("com.devsisters.cos") → "Cookie Run: OvenBreak"
+   └─ fetch_all_reviews("com.devsisters.cos", "en", "us", "newest", None) → [list of dicts]
+
+5. Response is built:
+   FetchReviewsResponse(
+       app_id="com.devsisters.cos",
+       app_name="Cookie Run: OvenBreak",
+       total_reviews=1520,
+       reviews=[...]
+   )
+
+6. FastAPI validates the response against FetchReviewsResponse (because response_model=)
+   └─ Each review in the list is validated against ReviewResponse
+
+7. JSON is sent back to the client:
+   { "app_id": "...", "app_name": "...", "total_reviews": 1520, "reviews": [...] }
+```
+
+---
+
+## How the OpenAPI Spec Gets Generated
+
+FastAPI automatically generates an OpenAPI spec from:
+
+1. **Router decorators** → paths and HTTP methods (`POST /api/reviews/fetch`)
+2. **Parameter types** → path params, query params, body params
+3. **Pydantic schemas** → request bodies and response shapes
+4. **`response_model`** → documents what the endpoint returns
+5. **`Field()` metadata** → descriptions, examples, constraints
+6. **Tags** → groups endpoints in the Swagger UI
+
+This spec is available at:
+- **Swagger UI**: `http://localhost:8000/docs` (interactive, testable)
+- **ReDoc**: `http://localhost:8000/redoc` (readable documentation)
+- **Raw JSON**: `http://localhost:8000/openapi.json` (machine-readable)
+
+The raw JSON is what **Orval** reads on the frontend to generate TypeScript types and React Query hooks — so the frontend always stays in sync with the backend API.

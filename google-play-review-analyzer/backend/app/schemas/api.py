@@ -1,5 +1,7 @@
 # API request/response schemas for OpenAPI spec
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -22,6 +24,11 @@ class FetchReviewsRequest(BaseModel):
         ge=1,
         le=5,
     )
+    since: datetime | None = Field(
+        default=None,
+        description="Only include reviews created on or after this date (ISO 8601).",
+        examples=["2025-01-01T00:00:00Z"],
+    )
 
 
 class ReviewResponse(BaseModel):
@@ -31,9 +38,9 @@ class ReviewResponse(BaseModel):
     score: int
     thumbs_up_count: int
     review_created_version: str | None
-    at: str  # ISO datetime string
+    at: datetime
     reply_content: str | None
-    replied_at: str | None  # ISO datetime string
+    replied_at: datetime | None
     app_version: str | None
 
 
