@@ -13,6 +13,7 @@ def _to_response(review: GooglePlayReview) -> ReviewResponse:
     return ReviewResponse(
         review_id=review.reviewId,
         user_name=review.userName,
+        user_image=review.userImage,
         content=review.content,
         score=review.score,
         thumbs_up_count=review.thumbsUpCount,

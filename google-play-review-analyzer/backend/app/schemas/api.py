@@ -34,6 +34,7 @@ class FetchReviewsRequest(BaseModel):
 class ReviewResponse(BaseModel):
     review_id: str
     user_name: str
+    user_image: str
     content: str
     score: int
     thumbs_up_count: int
