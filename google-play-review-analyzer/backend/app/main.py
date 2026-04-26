@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import analysis, reviews
+from app.routers import reviews
 
 app = FastAPI(
     title="Google Play Review Analyzer",
@@ -17,7 +17,6 @@ app.add_middleware(
 )
 
 app.include_router(reviews.router, prefix="/api")
-app.include_router(analysis.router, prefix="/api")
 
 
 @app.get("/health")

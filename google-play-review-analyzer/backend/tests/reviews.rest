@@ -10,3 +10,25 @@ Content-Type: application/json
     "url": "https://play.google.com/store/apps/details?id=com.devsisters.cos"
 }
 
+
+### Fetch and analyze — default prompts (no custom instructions)
+POST {{baseUrl}}/api/reviews/fetch-and-analyze
+Content-Type: application/json
+
+{
+    "url": "https://play.google.com/store/apps/details?id=com.devsisters.cos",
+    "sort": "newest"
+}
+
+
+### Fetch and analyze — with custom instructions
+POST {{baseUrl}}/api/reviews/fetch-and-analyze
+Content-Type: application/json
+
+{
+    "url": "https://play.google.com/store/apps/details?id=com.devsisters.cos",
+    "sort": "newest",
+    "sentiment_instructions": "Reviews about pricing alone should be neutral, not negative. Reviews that mention both positives and negatives should lean toward the dominant tone.",
+    "priority_instructions": "Pay special attention to crash reports, login issues, and data loss. Performance complaints about lag or slow loading are NOT high priority unless they make the app unusable."
+}
+
