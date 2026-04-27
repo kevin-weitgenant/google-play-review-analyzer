@@ -1,10 +1,11 @@
 import Axios from "axios";
+import type { AxiosRequestConfig } from "axios";
 
 const axiosInstance = Axios.create({
-  baseURL: "http://localhost:8000",
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
 });
 
-export const customInstance = <T>(config: Parameters<typeof axiosInstance>[0]) => {
+export const customInstance = <T>(config: AxiosRequestConfig) => {
   return axiosInstance(config).then((res) => res.data as T);
 };
 
