@@ -91,7 +91,7 @@ async def analyze_sentiment(
         model=settings.groq_model,
         messages=[{"role": "user", "content": user_message}],
         temperature=0,
-        max_tokens=500,
+        max_tokens=10000,
         response_format=SENTIMENT_JSON_SCHEMA,
     )
 
@@ -138,7 +138,7 @@ async def analyze_priority(
         model=settings.groq_model,
         messages=[{"role": "user", "content": user_message}],
         temperature=0,
-        max_tokens=500,
+        max_tokens=10000,
         response_format=PRIORITY_JSON_SCHEMA,
     )
 
@@ -206,7 +206,7 @@ async def generate_reply(
         model=settings.groq_model,
         messages=[{"role": "user", "content": user_message}],
         temperature=0.7,
-        max_tokens=300,
+        max_tokens=10000,
         response_format=REPLY_JSON_SCHEMA,
     )
 
