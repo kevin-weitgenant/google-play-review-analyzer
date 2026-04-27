@@ -1,24 +1,22 @@
 import { useState } from "react"
 import { useAnalyzeReviews } from "../hooks/useAnalyzeReviews"
 import type { Review, AnalysisData } from "../hooks/useAnalyzeReviews"
+import { getReviews } from "../api/reviews/reviews"
+import type { GenerateReplyRequest } from "../api/models"
 
 type Sentiment = "positive" | "neutral" | "negative"
 type Priority = "high" | "medium" | "low"
 
 interface AIConfig {
-  priorityRules: string
-  responseGuidelines: string
-  tone: "formal" | "informal" | "tecnico"
-  language: string
+  priorityInstructions: string
+  sentimentInstructions: string
+  replyInstructions: string
 }
 
 const DEFAULT_CONFIG: AIConfig = {
-  priorityRules:
-    "Marque como Urgente reviews com 1 estrela que mencionem erros críticos, falhas de login, perda de dados ou crashes. Marque como Alta reviews com 1-2 estrelas com reclamações recorrentes ou bugs confirmados. Marque como Normal todas as demais.",
-  responseGuidelines:
-    "Sempre inicie pelo nome do usuário. Reconheça o feedback antes de qualquer explicação. Seja empático e direto. Evite respostas genéricas. Se for um problema técnico, mencione que a equipe foi notificada.",
-  tone: "formal",
-  language: "Português brasileiro",
+  priorityInstructions: "",
+  sentimentInstructions: "",
+  replyInstructions: "",
 }
 
 const SENTIMENT_LABELS: Record<Sentiment, string> = {
@@ -93,16 +91,14 @@ function getInitials(name: string): string {
     .toUpperCase()
 }
 
-// TODO: Replace with real AI response endpoint when backend implements it
-function simulateAIResponse(review: Review, config: AIConfig): Promise<string> {
-  return new Promise((resolve) => {
-    const firstName = review.user_name.split(" ")[0]
-    setTimeout(() => {
-      resolve(
-        `Olá, ${firstName}! Obrigado pelo seu feedback. Sua opinião é muito importante para nós e estamos trabalhando para melhorar continuamente.`
-      )
-    }, 1400)
-  })
+async function generateReply(review: Review): Promise<string> {
+  const request: GenerateReplyRequest = {
+    user_name: review.user_name,
+    review_content: review.content,
+  }
+  const api = getReviews()
+  const response = await api.generateReplyApiReviewsGenerateReplyPost(request)
+  return response.reply
 }
 
 export function DesignKanban() {
@@ -116,9 +112,8 @@ export function DesignKanban() {
   const [copied, setCopied] = useState(false)
   const [generatingId, setGeneratingId] = useState<string | null>(null)
   const [editedResponses, setEditedResponses] = useState<Record<string, string>>({})
-  const [showConfig, setShowConfig] = useState(false)
   const [config, setConfig] = useState<AIConfig>(DEFAULT_CONFIG)
-  const [configDraft, setConfigDraft] = useState<AIConfig>(DEFAULT_CONFIG)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const { mutateAsync: analyze, isPending, error: analyzeError } = useAnalyzeReviews()
 
@@ -128,8 +123,8 @@ export function DesignKanban() {
     try {
       const data = await analyze({
         url: link,
-        sentiment_instructions: config.responseGuidelines,
-        priority_instructions: config.priorityRules,
+        sentiment_instructions: config.sentimentInstructions,
+        priority_instructions: config.priorityInstructions,
       })
       setAnalysisData(data)
       setReviews(data.reviews)
@@ -177,24 +172,11 @@ export function DesignKanban() {
     const review = reviews.find((r) => r.review_id === reviewId)
     if (!review) return
     setGeneratingId(reviewId)
-    const generated = await simulateAIResponse(review, config)
+    const generated = await generateReply(review)
     setReviews((prev) => prev.map((r) => (r.review_id === reviewId ? { ...r, ai_response: generated } : r)))
     setGeneratingId(null)
   }
 
-  const handleSaveConfig = () => {
-    setConfig(configDraft)
-    setShowConfig(false)
-  }
-
-  const handleCancelConfig = () => {
-    setConfigDraft(config)
-    setShowConfig(false)
-  }
-
-  const responseText = openReview
-    ? (editedResponses[openReview.review_id] ?? openReview.ai_response ?? "")
-    : ""
 
   return (
     <div
@@ -256,31 +238,6 @@ export function DesignKanban() {
                 </div>
               )
             })}
-
-            {/* Config button */}
-            <button
-              onClick={() => { setConfigDraft(config); setShowConfig(true) }}
-              title="Configurar IA"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 12,
-                fontWeight: 600,
-                padding: "5px 12px",
-                borderRadius: 6,
-                border: "1px solid #E5E7EB",
-                background: "white",
-                color: "#374151",
-                cursor: "pointer",
-              }}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-              Configurar IA
-            </button>
 
             <button
               onClick={() => {
@@ -401,6 +358,176 @@ export function DesignKanban() {
                 "Analisar agora"
               )}
             </button>
+          </div>
+
+          {/* Advanced settings */}
+          <div style={{ width: "100%", maxWidth: 560, marginTop: 20 }}>
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                color: "#6B7280",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                style={{
+                  transform: showAdvanced ? "rotate(90deg)" : "rotate(0deg)",
+                  transition: "transform 0.15s",
+                }}
+              >
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+              Configuracoes da IA (opcional)
+            </button>
+
+            {showAdvanced && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 16,
+                  marginTop: 14,
+                  padding: "20px",
+                  background: "white",
+                  borderRadius: 12,
+                  border: "1px solid #E5E7EB",
+                }}
+              >
+                {/* Priority instructions */}
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "#374151",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Como priorizar reviews?
+                  </label>
+                  <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 6, lineHeight: 1.4 }}>
+                    Descreva regras extras para o classificador de prioridade. Ex: “Problemas de pagamento devem ser Urgente.”
+                  </div>
+                  <textarea
+                    value={config.priorityInstructions}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, priorityInstructions: e.target.value }))}
+                    placeholder="Ex: Reviews sobre crashes ou perda de dados devem ser Urgente. Problemas de UI sao Baixa..."
+                    rows={3}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      border: "1.5px solid #E5E7EB",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                      color: "#374151",
+                      outline: "none",
+                      resize: "vertical",
+                      fontFamily: "inherit",
+                      boxSizing: "border-box",
+                      transition: "border-color 0.15s",
+                    }}
+                    onFocus={(e) => (e.target.style.borderColor = "#111827")}
+                    onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
+                  />
+                </div>
+
+                {/* Sentiment instructions */}
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "#374151",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Como classificar sentimento?
+                  </label>
+                  <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 6, lineHeight: 1.4 }}>
+                    Regras extras para o classificador de sentimento. Ex: “Reviews sobre preco sozinho devem ser Neutro.”
+                  </div>
+                  <textarea
+                    value={config.sentimentInstructions}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, sentimentInstructions: e.target.value }))}
+                    placeholder="Ex: Reviews apenas sobre precos devem ser Neutro, nao Negativo..."
+                    rows={3}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      border: "1.5px solid #E5E7EB",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                      color: "#374151",
+                      outline: "none",
+                      resize: "vertical",
+                      fontFamily: "inherit",
+                      boxSizing: "border-box",
+                      transition: "border-color 0.15s",
+                    }}
+                    onFocus={(e) => (e.target.style.borderColor = "#111827")}
+                    onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
+                  />
+                </div>
+
+                {/* Reply instructions */}
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "#374151",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Como gerar respostas?
+                  </label>
+                  <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 6, lineHeight: 1.4 }}>
+                    Diretrizes para respostas automaticas. Essa funcionalidade sera implementada em breve.
+                  </div>
+                  <textarea
+                    value={config.replyInstructions}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, replyInstructions: e.target.value }))}
+                    placeholder="Ex: Sempre inicie pelo nome do usuario. Seja empetico e direto..."
+                    rows={3}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      border: "1.5px solid #E5E7EB",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                      color: "#374151",
+                      outline: "none",
+                      resize: "vertical",
+                      fontFamily: "inherit",
+                      boxSizing: "border-box",
+                      transition: "border-color 0.15s",
+                    }}
+                    onFocus={(e) => (e.target.style.borderColor = "#111827")}
+                    onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{ display: "flex", gap: 28, marginTop: 40 }}>
@@ -896,214 +1023,6 @@ export function DesignKanban() {
         </div>
       )}
 
-      {/* AI Config modal */}
-      {showConfig && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.4)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 60,
-            padding: 24,
-          }}
-          onClick={handleCancelConfig}
-        >
-          <div
-            style={{
-              background: "white",
-              borderRadius: 16,
-              width: "100%",
-              maxWidth: 560,
-              padding: "32px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 24,
-              boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>Configurar IA</div>
-                <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.5 }}>
-                  Defina como a IA deve priorizar reviews e gerar respostas.
-                </div>
-              </div>
-              <button
-                onClick={handleCancelConfig}
-                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#9CA3AF", padding: 0 }}
-              >
-                ×
-              </button>
-            </div>
-
-            {/* Priority rules */}
-            <div>
-              <label
-                style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}
-              >
-                Regras de prioridade
-              </label>
-              <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8, lineHeight: 1.5 }}>
-                Descreva quando a IA deve marcar como Urgente, Alta ou Normal.
-              </div>
-              <textarea
-                value={configDraft.priorityRules}
-                onChange={(e) => setConfigDraft((prev) => ({ ...prev, priorityRules: e.target.value }))}
-                rows={4}
-                style={{
-                  width: "100%",
-                  padding: "11px 14px",
-                  border: "1.5px solid #E5E7EB",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  lineHeight: 1.6,
-                  color: "#374151",
-                  outline: "none",
-                  resize: "vertical",
-                  fontFamily: "inherit",
-                  boxSizing: "border-box",
-                  transition: "border-color 0.15s",
-                }}
-                onFocus={(e) => (e.target.style.borderColor = "#111827")}
-                onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
-              />
-            </div>
-
-            {/* Response guidelines */}
-            <div>
-              <label
-                style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}
-              >
-                Diretrizes de resposta
-              </label>
-              <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8, lineHeight: 1.5 }}>
-                Como a IA deve estruturar e personalizar cada resposta.
-              </div>
-              <textarea
-                value={configDraft.responseGuidelines}
-                onChange={(e) => setConfigDraft((prev) => ({ ...prev, responseGuidelines: e.target.value }))}
-                rows={4}
-                style={{
-                  width: "100%",
-                  padding: "11px 14px",
-                  border: "1.5px solid #E5E7EB",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  lineHeight: 1.6,
-                  color: "#374151",
-                  outline: "none",
-                  resize: "vertical",
-                  fontFamily: "inherit",
-                  boxSizing: "border-box",
-                  transition: "border-color 0.15s",
-                }}
-                onFocus={(e) => (e.target.style.borderColor = "#111827")}
-                onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
-              />
-            </div>
-
-            {/* Tone + Language */}
-            <div style={{ display: "flex", gap: 16 }}>
-              <div style={{ flex: 1 }}>
-                <label
-                  style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}
-                >
-                  Tom de voz
-                </label>
-                <select
-                  value={configDraft.tone}
-                  onChange={(e) =>
-                    setConfigDraft((prev) => ({ ...prev, tone: e.target.value as AIConfig["tone"] }))
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    border: "1.5px solid #E5E7EB",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    color: "#374151",
-                    outline: "none",
-                    background: "white",
-                    fontFamily: "inherit",
-                    cursor: "pointer",
-                  }}
-                >
-                  <option value="formal">Formal</option>
-                  <option value="informal">Informal</option>
-                  <option value="tecnico">Tecnico</option>
-                </select>
-              </div>
-              <div style={{ flex: 1 }}>
-                <label
-                  style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}
-                >
-                  Idioma
-                </label>
-                <select
-                  value={configDraft.language}
-                  onChange={(e) => setConfigDraft((prev) => ({ ...prev, language: e.target.value }))}
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    border: "1.5px solid #E5E7EB",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    color: "#374151",
-                    outline: "none",
-                    background: "white",
-                    fontFamily: "inherit",
-                    cursor: "pointer",
-                  }}
-                >
-                  <option value="Português brasileiro">Portugues brasileiro</option>
-                  <option value="Inglês">Ingles</option>
-                  <option value="Espanhol">Espanhol</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={handleCancelConfig}
-                style={{
-                  flex: 1,
-                  padding: "11px",
-                  borderRadius: 8,
-                  border: "1.5px solid #E5E7EB",
-                  background: "white",
-                  color: "#374151",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveConfig}
-                style={{
-                  flex: 2,
-                  padding: "11px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: "#111827",
-                  color: "white",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                Salvar configuracoes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

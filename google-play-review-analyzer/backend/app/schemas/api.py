@@ -149,6 +149,24 @@ class AnalyzedReviewResponse(ReviewResponse):
     priority: Literal["high", "medium", "low"]
 
 
+class GenerateReplyRequest(BaseModel):
+    user_name: str = Field(
+        ...,
+        description="Name of the reviewer.",
+    )
+    review_content: str = Field(
+        ...,
+        description="The review text.",
+    )
+
+
+class GenerateReplyResponse(BaseModel):
+    reply: str = Field(
+        ...,
+        description="Generated reply text.",
+    )
+
+
 class FetchAndAnalyzeResponse(BaseModel):
     app_id: str
     app_name: str

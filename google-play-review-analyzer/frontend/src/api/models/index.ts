@@ -12,6 +12,8 @@ export * from './fetchAndAnalyzeRequest';
 export * from './fetchAndAnalyzeResponse';
 export * from './fetchReviewsRequest';
 export * from './fetchReviewsResponse';
+export * from './generateReplyRequest';
+export * from './generateReplyResponse';
 export * from './hTTPValidationError';
 export * from './reviewResponse';
 export * from './validationError';

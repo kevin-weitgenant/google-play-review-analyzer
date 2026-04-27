@@ -10,6 +10,8 @@ from app.schemas.api import (
     FetchReviewsResponse,
     FetchAndAnalyzeRequest,
     FetchAndAnalyzeResponse,
+    GenerateReplyRequest,
+    GenerateReplyResponse,
     ReviewResponse,
     AnalyzedReviewResponse,
 )
@@ -190,3 +192,19 @@ async def fetch_and_analyze(request: FetchAndAnalyzeRequest):
         total_analyzed=len(analyzed),
         reviews=analyzed,
     )
+
+
+@router.post("/generate-reply", response_model=GenerateReplyResponse)
+def generate_reply(request: GenerateReplyRequest):
+    logger.info("user_name: %s", request.user_name)
+    logger.info("review: %s", request.review_content)
+
+    # TODO: Replace with actual Groq-powered reply generation
+    reply = (
+        f"Olá, {request.user_name.split()[0]}! "
+        "Obrigado pelo seu feedback. "
+        "Sua opinião é muito importante para nós "
+        "e estamos trabalhando para melhorar continuamente."
+    )
+
+    return GenerateReplyResponse(reply=reply)

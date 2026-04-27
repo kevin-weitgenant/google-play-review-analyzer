@@ -8,7 +8,9 @@ import type {
   FetchAndAnalyzeRequest,
   FetchAndAnalyzeResponse,
   FetchReviewsRequest,
-  FetchReviewsResponse
+  FetchReviewsResponse,
+  GenerateReplyRequest,
+  GenerateReplyResponse
 } from '../models';
 
 import { customInstance } from '.././axios-instance';
@@ -53,7 +55,21 @@ const fetchAndAnalyzeApiReviewsFetchAndAnalyzePost = (
     },
       );
     }
-  return {getReviewsApiReviewsGet,fetchReviewsApiReviewsFetchPost,fetchAndAnalyzeApiReviewsFetchAndAnalyzePost}};
+  /**
+ * @summary Generate Reply
+ */
+const generateReplyApiReviewsGenerateReplyPost = (
+    generateReplyRequest: GenerateReplyRequest,
+ ) => {
+      return customInstance<GenerateReplyResponse>(
+      {url: `/api/reviews/generate-reply`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: generateReplyRequest
+    },
+      );
+    }
+  return {getReviewsApiReviewsGet,fetchReviewsApiReviewsFetchPost,fetchAndAnalyzeApiReviewsFetchAndAnalyzePost,generateReplyApiReviewsGenerateReplyPost}};
 export type GetReviewsApiReviewsGetResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getReviews>['getReviewsApiReviewsGet']>>>
 export type FetchReviewsApiReviewsFetchPostResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getReviews>['fetchReviewsApiReviewsFetchPost']>>>
 export type FetchAndAnalyzeApiReviewsFetchAndAnalyzePostResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getReviews>['fetchAndAnalyzeApiReviewsFetchAndAnalyzePost']>>>
+export type GenerateReplyApiReviewsGenerateReplyPostResult = NonNullable<Awaited<ReturnType<ReturnType<typeof getReviews>['generateReplyApiReviewsGenerateReplyPost']>>>
