@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException
 
@@ -165,14 +166,14 @@ async def fetch_and_analyze(request: FetchAndAnalyzeRequest):
             logger.error("Sentiment analysis failed for review %s: %s", review.review_id, sent_result)
             sentiment = "neutral"
         else:
-            sentiment = sent_result
+            sentiment = cast(Literal["positive", "neutral", "negative"], sent_result)
             logger.info("Review %s sentiment=%s content=%.60s", review.review_id, sentiment, review.content)
 
         if isinstance(prio_result, Exception):
             logger.error("Priority analysis failed for review %s: %s", review.review_id, prio_result)
             priority = "low"
         else:
-            priority = prio_result
+            priority = cast(Literal["high", "medium", "low"], prio_result)
             logger.info("Review %s priority=%s", review.review_id, priority)
 
         analyzed.append(
