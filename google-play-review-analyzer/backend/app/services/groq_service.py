@@ -1,12 +1,8 @@
 import json
+import logging
 
-import httpx
-from tenacity import (
-    retry,
-    wait_exponential,
-    stop_after_attempt,
-    retry_if_exception_type,
-)
+from groq import AsyncGroq
+from groq.types.chat.completion_create_params import ResponseFormatResponseFormatJsonSchema
 
 from app.core.config import settings
 from app.schemas.api import (
@@ -16,11 +12,21 @@ from app.schemas.api import (
     PRIORITY_PROMPT_FOOTER,
 )
 
-GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+logger = logging.getLogger(__name__)
 
-SENTIMENT_JSON_SCHEMA = {
-    "type": "json_schema",
-    "json_schema": {
+# Module-level async client — reads GROQ_API_KEY from env automatically.
+# Built-in retries: 3 attempts with exponential backoff (covers connection errors,
+# 408, 409, 429, and 5xx).
+client = AsyncGroq(
+    api_key=settings.groq_api_key,
+    max_retries=3,
+)
+
+# --- Strict-mode JSON schemas (supported by openai/gpt-oss-20b) ---
+
+SENTIMENT_JSON_SCHEMA = ResponseFormatResponseFormatJsonSchema(
+    type="json_schema",
+    json_schema={
         "name": "sentiment",
         "strict": True,
         "schema": {
@@ -35,11 +41,11 @@ SENTIMENT_JSON_SCHEMA = {
             "additionalProperties": False,
         },
     },
-}
+)
 
-PRIORITY_JSON_SCHEMA = {
-    "type": "json_schema",
-    "json_schema": {
+PRIORITY_JSON_SCHEMA = ResponseFormatResponseFormatJsonSchema(
+    type="json_schema",
+    json_schema={
         "name": "priority",
         "strict": True,
         "schema": {
@@ -54,23 +60,16 @@ PRIORITY_JSON_SCHEMA = {
             "additionalProperties": False,
         },
     },
-}
-
-
-@retry(
-    wait=wait_exponential(multiplier=1, min=1, max=10),
-    stop=stop_after_attempt(3),
-    retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.ConnectError)),
 )
+
+
 async def analyze_sentiment(
-    client: httpx.AsyncClient,
     content: str,
     instructions: str = "",
 ) -> str:
     """Classify review sentiment. Returns 'positive', 'neutral', or 'negative'.
 
     Args:
-        client: Shared httpx async client for connection pooling.
         content: The review comment text — nothing else.
         instructions: Optional extra instructions from the frontend.
     """
@@ -80,38 +79,44 @@ async def analyze_sentiment(
     parts.append(SENTIMENT_PROMPT_FOOTER.format(content=content))
     user_message = "\n\n".join(parts)
 
-    response = await client.post(
-        GROQ_CHAT_URL,
-        headers={"Authorization": f"Bearer {settings.groq_api_key}"},
-        json={
-            "model": settings.groq_model,
-            "messages": [{"role": "user", "content": user_message}],
-            "temperature": 0,
-            "max_tokens": 50,
-            "response_format": SENTIMENT_JSON_SCHEMA,
-        },
+    logger.info(
+        "Groq sentiment REQUEST  model=%s  messages=%s",
+        settings.groq_model,
+        [{"role": "user", "content": user_message}],
     )
-    response.raise_for_status()
 
-    raw = response.json()["choices"][0]["message"]["content"]
+    response = await client.chat.completions.create(
+        model=settings.groq_model,
+        messages=[{"role": "user", "content": user_message}],
+        temperature=0,
+        max_tokens=500,
+        response_format=SENTIMENT_JSON_SCHEMA,
+    )
+
+    raw = response.choices[0].message.content or "{}"
+    logger.info(
+        "Groq sentiment RESPONSE  id=%s  model=%s  raw=%s  usage=%s  finish_reason=%s",
+        response.id,
+        response.model,
+        raw,
+        response.usage,
+        response.choices[0].finish_reason,
+    )
     result = json.loads(raw)
-    return result["sentiment"]
+    sentiment = result.get("sentiment", "neutral")
+    if sentiment not in ("positive", "neutral", "negative"):
+        logger.warning("Unexpected sentiment value: %s – defaulting to neutral", sentiment)
+        sentiment = "neutral"
+    return sentiment
 
 
-@retry(
-    wait=wait_exponential(multiplier=1, min=1, max=10),
-    stop=stop_after_attempt(3),
-    retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.ConnectError)),
-)
 async def analyze_priority(
-    client: httpx.AsyncClient,
     content: str,
     instructions: str = "",
 ) -> str:
     """Classify review priority. Returns 'high', 'medium', or 'low'.
 
     Args:
-        client: Shared httpx async client for connection pooling.
         content: The review comment text — nothing else.
         instructions: Optional extra instructions from the frontend.
     """
@@ -121,19 +126,32 @@ async def analyze_priority(
     parts.append(PRIORITY_PROMPT_FOOTER.format(content=content))
     user_message = "\n\n".join(parts)
 
-    response = await client.post(
-        GROQ_CHAT_URL,
-        headers={"Authorization": f"Bearer {settings.groq_api_key}"},
-        json={
-            "model": settings.groq_model,
-            "messages": [{"role": "user", "content": user_message}],
-            "temperature": 0,
-            "max_tokens": 50,
-            "response_format": PRIORITY_JSON_SCHEMA,
-        },
+    logger.info(
+        "Groq priority REQUEST  model=%s  messages=%s",
+        settings.groq_model,
+        [{"role": "user", "content": user_message}],
     )
-    response.raise_for_status()
 
-    raw = response.json()["choices"][0]["message"]["content"]
+    response = await client.chat.completions.create(
+        model=settings.groq_model,
+        messages=[{"role": "user", "content": user_message}],
+        temperature=0,
+        max_tokens=500,
+        response_format=PRIORITY_JSON_SCHEMA,
+    )
+
+    raw = response.choices[0].message.content or "{}"
+    logger.info(
+        "Groq priority RESPONSE  id=%s  model=%s  raw=%s  usage=%s  finish_reason=%s",
+        response.id,
+        response.model,
+        raw,
+        response.usage,
+        response.choices[0].finish_reason,
+    )
     result = json.loads(raw)
-    return result["priority"]
+    priority = result.get("priority", "low")
+    if priority not in ("high", "medium", "low"):
+        logger.warning("Unexpected priority value: %s – defaulting to low", priority)
+        priority = "low"
+    return priority

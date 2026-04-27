@@ -8,7 +8,6 @@ dependencies = [
     "fastapi>=0.136.0",
     "google-play-scraper>=1.2.7",
     "groq>=1.2.0",
-    "httpx>=0.28.1",
     "pydantic>=2.13.3",
     "pydantic-settings>=2.14.0",
     "python-dotenv>=1.2.2",

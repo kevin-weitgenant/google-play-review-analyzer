@@ -1,20 +1,9 @@
 import { useState } from "react"
+import { useAnalyzeReviews } from "../hooks/useAnalyzeReviews"
+import type { Review, AnalysisData } from "../hooks/useAnalyzeReviews"
 
-type Sentiment = "Positivo" | "Neutro" | "Negativo"
-type Priority = "Normal" | "Alta" | "Urgente"
-
-interface Review {
-  id: number
-  author: string
-  avatar: string
-  stars: number
-  date: string
-  text: string
-  sentiment: Sentiment
-  priority: Priority
-  response: string | null
-  done: boolean
-}
+type Sentiment = "positive" | "neutral" | "negative"
+type Priority = "high" | "medium" | "low"
 
 interface AIConfig {
   priorityRules: string
@@ -32,83 +21,28 @@ const DEFAULT_CONFIG: AIConfig = {
   language: "Português brasileiro",
 }
 
-const INITIAL_REVIEWS: Review[] = [
-  {
-    id: 1,
-    author: "Carlos M.",
-    avatar: "CM",
-    stars: 5,
-    date: "22 abr",
-    text: "Aplicativo incrível! Interface linda e muito rápido. Nunca travou uma vez sequer. Recomendo demais para todos os meus amigos.",
-    sentiment: "Positivo",
-    priority: "Normal",
-    response: null,
-    done: false,
-  },
-  {
-    id: 2,
-    author: "Fernanda L.",
-    avatar: "FL",
-    stars: 1,
-    date: "21 abr",
-    text: "Não consigo fazer login de jeito nenhum. Já tentei redefinir a senha três vezes e o app continua dando erro 500.",
-    sentiment: "Negativo",
-    priority: "Urgente",
-    response: null,
-    done: false,
-  },
-  {
-    id: 3,
-    author: "Rafael P.",
-    avatar: "RP",
-    stars: 3,
-    date: "20 abr",
-    text: "O app funciona, mas poderia ter mais opções de customização. Nada de extraordinário, cumpre o básico.",
-    sentiment: "Neutro",
-    priority: "Normal",
-    response: null,
-    done: false,
-  },
-  {
-    id: 4,
-    author: "Juliana S.",
-    avatar: "JS",
-    stars: 2,
-    date: "19 abr",
-    text: "Atualização recente quebrou as notificações push. Antes funcionava perfeitamente, agora não recebo nenhum alerta.",
-    sentiment: "Negativo",
-    priority: "Alta",
-    response: null,
-    done: false,
-  },
-  {
-    id: 5,
-    author: "Thiago B.",
-    avatar: "TB",
-    stars: 5,
-    date: "18 abr",
-    text: "Melhor app da categoria! A sincronização em tempo real é perfeita e nunca perco nenhum dado.",
-    sentiment: "Positivo",
-    priority: "Normal",
-    response: null,
-    done: false,
-  },
-  {
-    id: 6,
-    author: "Amanda R.",
-    avatar: "AR",
-    stars: 4,
-    date: "17 abr",
-    text: "Gosto bastante, mas o carregamento inicial poderia ser mais rápido. No geral muito bom.",
-    sentiment: "Positivo",
-    priority: "Normal",
-    response: null,
-    done: false,
-  },
-]
+const SENTIMENT_LABELS: Record<Sentiment, string> = {
+  positive: "Positivo",
+  neutral: "Neutro",
+  negative: "Negativo",
+}
 
-const COLUMN_CONFIG = {
-  Positivo: {
+const PRIORITY_LABELS: Record<Priority, string> = {
+  high: "Urgente",
+  medium: "Alta",
+  low: "Normal",
+}
+
+const COLUMN_CONFIG: Record<Sentiment, {
+  label: string
+  bg: string
+  border: string
+  headerBg: string
+  headerText: string
+  dot: string
+  cardBorder: string
+}> = {
+  positive: {
     label: "Positivo",
     bg: "#F0FDF4",
     border: "#86EFAC",
@@ -117,7 +51,7 @@ const COLUMN_CONFIG = {
     dot: "#16A34A",
     cardBorder: "#BBF7D0",
   },
-  Neutro: {
+  neutral: {
     label: "Neutro",
     bg: "#F9FAFB",
     border: "#D1D5DB",
@@ -126,7 +60,7 @@ const COLUMN_CONFIG = {
     dot: "#9CA3AF",
     cardBorder: "#E5E7EB",
   },
-  Negativo: {
+  negative: {
     label: "Negativo",
     bg: "#FFF5F5",
     border: "#FCA5A5",
@@ -138,32 +72,34 @@ const COLUMN_CONFIG = {
 }
 
 const PRIORITY_CONFIG: Record<Priority, { text: string; bg: string; stripe: string; label: string }> = {
-  Urgente: { text: "#991B1B", bg: "#FEE2E2", stripe: "#EF4444", label: "Urgente" },
-  Alta:    { text: "#92400E", bg: "#FEF3C7", stripe: "#F59E0B", label: "Alta" },
-  Normal:  { text: "#166534", bg: "#DCFCE7", stripe: "#86EFAC", label: "Normal" },
+  high:   { text: "#991B1B", bg: "#FEE2E2", stripe: "#EF4444", label: "Urgente" },
+  medium: { text: "#92400E", bg: "#FEF3C7", stripe: "#F59E0B", label: "Alta" },
+  low:    { text: "#166534", bg: "#DCFCE7", stripe: "#86EFAC", label: "Normal" },
 }
 
-// Simulates AI generation with a delay
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  const months = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
+  return `${d.getDate()} ${months[d.getMonth()]}`
+}
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase()
+}
+
+// TODO: Replace with real AI response endpoint when backend implements it
 function simulateAIResponse(review: Review, config: AIConfig): Promise<string> {
   return new Promise((resolve) => {
-    const toneMap = {
-      formal: "formal e profissional",
-      informal: "amigável e descontraído",
-      tecnico: "técnico e preciso",
-    }
-    const responses: Record<number, string> = {
-      1: `Olá, ${review.author.split(" ")[0]}! Muito obrigado pelo feedback carinhoso. Fico feliz que sua experiência tenha sido excelente. Continuaremos trabalhando para manter esse padrão de qualidade!`,
-      2: `Olá, ${review.author.split(" ")[0]}! Lamentamos muito os problemas com o login. Nossa equipe técnica já foi notificada e está investigando o erro 500 com prioridade máxima. Por favor, entre em contato com suporte@app.com para agilizarmos o atendimento.`,
-      3: `Olá, ${review.author.split(" ")[0]}! Agradecemos seu retorno. Anotamos sua sugestão sobre mais opções de customização e vamos considerá-la nas próximas atualizações. Fique ligado nas novidades!`,
-      4: `Olá, ${review.author.split(" ")[0]}! Identificamos o problema nas notificações push após a última atualização e já estamos trabalhando no hotfix. Será corrigido em breve — agradecemos a paciência.`,
-      5: `Olá, ${review.author.split(" ")[0]}! Que ótimo ouvir isso! A sincronização em tempo real é um dos nossos maiores orgulhos. Obrigado por confiar no nosso produto!`,
-      6: `Olá, ${review.author.split(" ")[0]}! Obrigado pelo feedback! Estamos trabalhando em melhorias de performance para a próxima versão. Fique ligado nas atualizações!`,
-    }
-    // Simulate network latency
+    const firstName = review.user_name.split(" ")[0]
     setTimeout(() => {
       resolve(
-        responses[review.id] ??
-          `Olá, ${review.author.split(" ")[0]}! Obrigado pelo seu feedback. [Tom ${toneMap[config.tone]}] ${config.responseGuidelines.slice(0, 80)}...`,
+        `Olá, ${firstName}! Obrigado pelo seu feedback. Sua opinião é muito importante para nós e estamos trabalhando para melhorar continuamente.`
       )
     }, 1400)
   })
@@ -172,59 +108,77 @@ function simulateAIResponse(review: Review, config: AIConfig): Promise<string> {
 export function DesignKanban() {
   const [step, setStep] = useState<"input" | "board">("input")
   const [link, setLink] = useState("")
-  const [reviews, setReviews] = useState<Review[]>(INITIAL_REVIEWS)
-  const [dragging, setDragging] = useState<number | null>(null)
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null)
+  const [dragging, setDragging] = useState<string | null>(null)
   const [over, setOver] = useState<Sentiment | null>(null)
-  const [openCard, setOpenCard] = useState<number | null>(null)
+  const [openCard, setOpenCard] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
-  const [generatingId, setGeneratingId] = useState<number | null>(null)
-  const [editedResponses, setEditedResponses] = useState<Record<number, string>>({})
+  const [generatingId, setGeneratingId] = useState<string | null>(null)
+  const [editedResponses, setEditedResponses] = useState<Record<string, string>>({})
   const [showConfig, setShowConfig] = useState(false)
   const [config, setConfig] = useState<AIConfig>(DEFAULT_CONFIG)
   const [configDraft, setConfigDraft] = useState<AIConfig>(DEFAULT_CONFIG)
 
-  const columns: Sentiment[] = ["Positivo", "Neutro", "Negativo"]
+  const { mutateAsync: analyze, isPending, error: analyzeError } = useAnalyzeReviews()
 
-  const handleDragStart = (id: number) => setDragging(id)
+  const columns = ["positive", "neutral", "negative"] as const
+
+  const handleAnalyze = async () => {
+    try {
+      const data = await analyze({
+        url: link,
+        sentiment_instructions: config.responseGuidelines,
+        priority_instructions: config.priorityRules,
+      })
+      setAnalysisData(data)
+      setReviews(data.reviews)
+      setStep("board")
+    } catch {
+      // error is already captured by the mutation
+    }
+  }
+
+  const handleDragStart = (id: string) => setDragging(id)
   const handleDragOver = (e: React.DragEvent, col: Sentiment) => {
     e.preventDefault()
     setOver(col)
   }
   const handleDrop = (col: Sentiment) => {
     if (dragging !== null) {
-      setReviews((prev) => prev.map((r) => (r.id === dragging ? { ...r, sentiment: col } : r)))
+      setReviews((prev) => prev.map((r) => (r.review_id === dragging ? { ...r, sentiment: col } : r)))
     }
     setDragging(null)
     setOver(null)
   }
 
-  const openReview = reviews.find((r) => r.id === openCard)
+  const openReview = reviews.find((r) => r.review_id === openCard)
 
   const totals = {
-    Positivo: reviews.filter((r) => r.sentiment === "Positivo").length,
-    Negativo: reviews.filter((r) => r.sentiment === "Negativo").length,
-    Neutro: reviews.filter((r) => r.sentiment === "Neutro").length,
+    positive: reviews.filter((r) => r.sentiment === "positive").length,
+    negative: reviews.filter((r) => r.sentiment === "negative").length,
+    neutral: reviews.filter((r) => r.sentiment === "neutral").length,
   }
 
-  const handleMarkDone = (id: number) => {
-    setReviews((prev) => prev.map((r) => (r.id === id ? { ...r, done: true } : r)))
+  const handleMarkDone = (id: string) => {
+    setReviews((prev) => prev.map((r) => (r.review_id === id ? { ...r, done: true } : r)))
     setOpenCard(null)
   }
 
   const handleCopy = () => {
     if (!openReview) return
-    const text = editedResponses[openReview.id] ?? openReview.response ?? ""
+    const text = editedResponses[openReview.review_id] ?? openReview.ai_response ?? ""
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handleGenerateResponse = async (reviewId: number) => {
-    const review = reviews.find((r) => r.id === reviewId)
+  const handleGenerateResponse = async (reviewId: string) => {
+    const review = reviews.find((r) => r.review_id === reviewId)
     if (!review) return
     setGeneratingId(reviewId)
     const generated = await simulateAIResponse(review, config)
-    setReviews((prev) => prev.map((r) => (r.id === reviewId ? { ...r, response: generated } : r)))
+    setReviews((prev) => prev.map((r) => (r.review_id === reviewId ? { ...r, ai_response: generated } : r)))
     setGeneratingId(null)
   }
 
@@ -239,7 +193,7 @@ export function DesignKanban() {
   }
 
   const responseText = openReview
-    ? (editedResponses[openReview.id] ?? openReview.response ?? "")
+    ? (editedResponses[openReview.review_id] ?? openReview.ai_response ?? "")
     : ""
 
   return (
@@ -282,6 +236,11 @@ export function DesignKanban() {
             </svg>
           </div>
           <span style={{ fontWeight: 800, fontSize: 15, letterSpacing: "-0.4px" }}>ReviewFlow</span>
+          {analysisData && (
+            <span style={{ fontSize: 12, color: "#6B7280", marginLeft: 8 }}>
+              {analysisData.app_name} · {analysisData.total_analyzed} reviews
+            </span>
+          )}
         </div>
 
         {step === "board" && (
@@ -292,7 +251,7 @@ export function DesignKanban() {
                 <div key={col} style={{ display: "flex", alignItems: "center", gap: 5 }}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.dot }} />
                   <span style={{ fontSize: 12, color: "#6B7280" }}>
-                    {totals[col]} {col.toLowerCase()}
+                    {totals[col]} {SENTIMENT_LABELS[col].toLowerCase()}
                   </span>
                 </div>
               )
@@ -324,7 +283,12 @@ export function DesignKanban() {
             </button>
 
             <button
-              onClick={() => setStep("input")}
+              onClick={() => {
+                setStep("input")
+                setAnalysisData(null)
+                setReviews([])
+                setLink("")
+              }}
               style={{
                 fontSize: 12,
                 fontWeight: 600,
@@ -384,11 +348,18 @@ export function DesignKanban() {
             Cole o link do seu app na Google Play Store e a IA vai classificar, priorizar e sugerir respostas para cada review.
           </p>
 
+          {analyzeError && (
+            <div style={{ color: "#DC2626", fontSize: 13, marginBottom: 12, maxWidth: 560, textAlign: "center" }}>
+              Erro ao analisar: {analyzeError.message}
+            </div>
+          )}
+
           <div style={{ width: "100%", maxWidth: 560, display: "flex", gap: 10 }}>
             <input
               value={link}
               onChange={(e) => setLink(e.target.value)}
               placeholder="https://play.google.com/store/apps/details?id=..."
+              disabled={isPending}
               style={{
                 flex: 1,
                 padding: "13px 16px",
@@ -404,20 +375,31 @@ export function DesignKanban() {
               onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
             />
             <button
-              onClick={() => setStep("board")}
+              onClick={handleAnalyze}
+              disabled={isPending || !link.trim()}
               style={{
                 padding: "13px 24px",
                 borderRadius: 10,
                 border: "none",
-                background: "#111827",
+                background: isPending ? "#9CA3AF" : "#111827",
                 color: "white",
                 fontSize: 14,
                 fontWeight: 700,
-                cursor: "pointer",
+                cursor: isPending ? "not-allowed" : "pointer",
                 whiteSpace: "nowrap",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
               }}
             >
-              Analisar agora
+              {isPending ? (
+                <>
+                  <SpinnerIcon />
+                  Analisando...
+                </>
+              ) : (
+                "Analisar agora"
+              )}
             </button>
           </div>
 
@@ -497,10 +479,10 @@ export function DesignKanban() {
                     const p = PRIORITY_CONFIG[r.priority]
                     return (
                       <div
-                        key={r.id}
+                        key={r.review_id}
                         draggable
-                        onDragStart={() => handleDragStart(r.id)}
-                        onClick={() => setOpenCard(r.id)}
+                        onDragStart={() => handleDragStart(r.review_id)}
+                        onClick={() => setOpenCard(r.review_id)}
                         style={{
                           background: "white",
                           borderRadius: 10,
@@ -538,15 +520,26 @@ export function DesignKanban() {
                                   fontWeight: 800,
                                   color: c.headerText,
                                   flexShrink: 0,
+                                  overflow: "hidden",
                                 }}
                               >
-                                {r.avatar}
+                                <img
+                                  src={r.user_image}
+                                  alt=""
+                                  style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }}
+                                  onError={(e) => {
+                                    const img = e.currentTarget
+                                    img.style.display = "none"
+                                    const parent = img.parentElement
+                                    if (parent) parent.textContent = getInitials(r.user_name)
+                                  }}
+                                />
                               </div>
                               <div>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>{r.author}</div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>{r.user_name}</div>
                                 <div style={{ display: "flex", gap: 1 }}>
                                   {Array.from({ length: 5 }).map((_, i) => (
-                                    <span key={i} style={{ fontSize: 9, color: i < r.stars ? "#F59E0B" : "#E5E7EB" }}>
+                                    <span key={i} style={{ fontSize: 9, color: i < r.score ? "#F59E0B" : "#E5E7EB" }}>
                                       ★
                                     </span>
                                   ))}
@@ -554,7 +547,7 @@ export function DesignKanban() {
                               </div>
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
-                              {r.priority !== "Normal" && (
+                              {r.priority !== "low" && (
                                 <span
                                   style={{
                                     fontSize: 9,
@@ -587,10 +580,20 @@ export function DesignKanban() {
                               overflow: "hidden",
                             }}
                           >
-                            {r.text}
+                            {r.content}
                           </p>
-                          <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                            <span style={{ fontSize: 10, color: "#D1D5DB" }}>{r.date}</span>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              {r.thumbs_up_count > 0 && (
+                                <span style={{ fontSize: 10, color: "#9CA3AF", display: "flex", alignItems: "center", gap: 2 }}>
+                                  👍 {r.thumbs_up_count}
+                                </span>
+                              )}
+                              {r.reply_content && (
+                                <span style={{ fontSize: 10, color: "#9CA3AF" }}>💬</span>
+                              )}
+                            </div>
+                            <span style={{ fontSize: 10, color: "#D1D5DB" }}>{formatDate(r.at)}</span>
                           </div>
                         </div>
                       </div>
@@ -656,12 +659,12 @@ export function DesignKanban() {
               {/* Header */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
-                  <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 4 }}>{openReview.author}</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 4 }}>{openReview.user_name}</div>
                   <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
                     {Array.from({ length: 5 }).map((_, i) => (
-                      <span key={i} style={{ color: i < openReview.stars ? "#F59E0B" : "#E5E7EB" }}>★</span>
+                      <span key={i} style={{ color: i < openReview.score ? "#F59E0B" : "#E5E7EB" }}>★</span>
                     ))}
-                    <span style={{ fontSize: 12, color: "#9CA3AF", marginLeft: 6 }}>{openReview.date}</span>
+                    <span style={{ fontSize: 12, color: "#9CA3AF", marginLeft: 6 }}>{formatDate(openReview.at)}</span>
                   </div>
                 </div>
                 <button
@@ -670,6 +673,16 @@ export function DesignKanban() {
                 >
                   ×
                 </button>
+              </div>
+
+              {/* Review meta: app version, thumbs up */}
+              <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#6B7280" }}>
+                {openReview.app_version && (
+                  <span>v{openReview.app_version}</span>
+                )}
+                {openReview.thumbs_up_count > 0 && (
+                  <span>👍 {openReview.thumbs_up_count} pessoa(s) acharam útil</span>
+                )}
               </div>
 
               {/* Sentiment + priority badges */}
@@ -684,7 +697,7 @@ export function DesignKanban() {
                     color: COLUMN_CONFIG[openReview.sentiment].headerText,
                   }}
                 >
-                  {openReview.sentiment}
+                  {SENTIMENT_LABELS[openReview.sentiment]}
                 </span>
                 <span
                   style={{
@@ -696,7 +709,7 @@ export function DesignKanban() {
                     color: PRIORITY_CONFIG[openReview.priority].text,
                   }}
                 >
-                  Prioridade {openReview.priority}
+                  Prioridade {PRIORITY_LABELS[openReview.priority]}
                 </span>
               </div>
 
@@ -705,8 +718,23 @@ export function DesignKanban() {
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
                   Review
                 </div>
-                <p style={{ fontSize: 14, lineHeight: 1.7, color: "#374151", margin: 0 }}>{openReview.text}</p>
+                <p style={{ fontSize: 14, lineHeight: 1.7, color: "#374151", margin: 0 }}>{openReview.content}</p>
               </div>
+
+              {/* Developer reply (if exists) */}
+              {openReview.reply_content && (
+                <div style={{ background: "#EFF6FF", borderRadius: 10, padding: "14px 16px", border: "1px solid #BFDBFE" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#3B82F6", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
+                    Resposta do desenvolvedor
+                    {openReview.replied_at && (
+                      <span style={{ textTransform: "none", color: "#93C5FD", marginLeft: 8, fontWeight: 400 }}>
+                        {formatDate(openReview.replied_at)}
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: 13, lineHeight: 1.6, color: "#1E40AF", margin: 0 }}>{openReview.reply_content}</p>
+                </div>
+              )}
 
               {/* Suggested response section */}
               <div>
@@ -714,7 +742,7 @@ export function DesignKanban() {
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                     Resposta sugerida
                   </div>
-                  {openReview.response && (
+                  {openReview.ai_response && (
                     <button
                       onClick={handleCopy}
                       style={{
@@ -733,11 +761,11 @@ export function DesignKanban() {
                   )}
                 </div>
 
-                {openReview.response ? (
+                {openReview.ai_response ? (
                   <textarea
-                    value={editedResponses[openReview.id] ?? openReview.response}
+                    value={editedResponses[openReview.review_id] ?? openReview.ai_response}
                     onChange={(e) =>
-                      setEditedResponses((prev) => ({ ...prev, [openReview.id]: e.target.value }))
+                      setEditedResponses((prev) => ({ ...prev, [openReview.review_id]: e.target.value }))
                     }
                     style={{
                       width: "100%",
@@ -776,8 +804,8 @@ export function DesignKanban() {
                       </div>
                     </div>
                     <button
-                      onClick={() => handleGenerateResponse(openReview.id)}
-                      disabled={generatingId === openReview.id}
+                      onClick={() => handleGenerateResponse(openReview.review_id)}
+                      disabled={generatingId === openReview.review_id}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -785,15 +813,15 @@ export function DesignKanban() {
                         padding: "9px 18px",
                         borderRadius: 8,
                         border: "none",
-                        background: generatingId === openReview.id ? "#E5E7EB" : "#111827",
-                        color: generatingId === openReview.id ? "#9CA3AF" : "white",
+                        background: generatingId === openReview.review_id ? "#E5E7EB" : "#111827",
+                        color: generatingId === openReview.review_id ? "#9CA3AF" : "white",
                         fontSize: 13,
                         fontWeight: 700,
-                        cursor: generatingId === openReview.id ? "not-allowed" : "pointer",
+                        cursor: generatingId === openReview.review_id ? "not-allowed" : "pointer",
                         transition: "all 0.15s",
                       }}
                     >
-                      {generatingId === openReview.id ? (
+                      {generatingId === openReview.review_id ? (
                         <>
                           <SpinnerIcon />
                           Gerando...
@@ -809,18 +837,18 @@ export function DesignKanban() {
                 )}
 
                 {/* Regenerate button (when response already exists) */}
-                {openReview.response && (
+                {openReview.ai_response && (
                   <button
                     onClick={() => {
-                      setReviews((prev) => prev.map((r) => (r.id === openReview.id ? { ...r, response: null } : r)))
+                      setReviews((prev) => prev.map((r) => (r.review_id === openReview.review_id ? { ...r, ai_response: null } : r)))
                       setEditedResponses((prev) => {
                         const next = { ...prev }
-                        delete next[openReview.id]
+                        delete next[openReview.review_id]
                         return next
                       })
-                      handleGenerateResponse(openReview.id)
+                      handleGenerateResponse(openReview.review_id)
                     }}
-                    disabled={generatingId === openReview.id}
+                    disabled={generatingId === openReview.review_id}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -845,18 +873,18 @@ export function DesignKanban() {
               {/* Action buttons */}
               <div style={{ display: "flex", gap: 10, marginTop: "auto", paddingTop: 8 }}>
                 <button
-                  onClick={() => handleMarkDone(openReview.id)}
-                  disabled={!openReview.response}
+                  onClick={() => handleMarkDone(openReview.review_id)}
+                  disabled={!openReview.ai_response}
                   style={{
                     flex: 1,
                     padding: "12px",
                     borderRadius: 8,
                     border: "none",
-                    background: openReview.response ? "#111827" : "#E5E7EB",
-                    color: openReview.response ? "white" : "#9CA3AF",
+                    background: openReview.ai_response ? "#111827" : "#E5E7EB",
+                    color: openReview.ai_response ? "white" : "#9CA3AF",
                     fontSize: 14,
                     fontWeight: 700,
-                    cursor: openReview.response ? "pointer" : "not-allowed",
+                    cursor: openReview.ai_response ? "pointer" : "not-allowed",
                     transition: "all 0.15s",
                   }}
                 >

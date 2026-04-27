@@ -1,6 +1,6 @@
 import asyncio
+import logging
 
-import httpx
 from fastapi import APIRouter, HTTPException
 
 from app.models.scraper import GooglePlayReview
@@ -15,6 +15,8 @@ from app.schemas.api import (
 from app.core.config import settings
 from app.services.scraper import extract_app_id, fetch_reviews_paginated, get_app_name
 from app.services.groq_service import analyze_sentiment, analyze_priority
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
@@ -135,25 +137,22 @@ async def fetch_and_analyze(request: FetchAndAnalyzeRequest):
 
     # 4. AI analysis — 2 calls per review, all concurrent
     #    Layout: [sent_1, prio_1, sent_2, prio_2, ..., sent_N, prio_N]
-    async with httpx.AsyncClient() as client:
-        tasks = []
-        for review in reviews:
-            tasks.append(
-                analyze_sentiment(
-                    client,
-                    review.content,
-                    instructions=request.sentiment_instructions,
-                )
+    tasks = []
+    for review in reviews:
+        tasks.append(
+            analyze_sentiment(
+                review.content,
+                instructions=request.sentiment_instructions,
             )
-            tasks.append(
-                analyze_priority(
-                    client,
-                    review.content,
-                    instructions=request.priority_instructions,
-                )
+        )
+        tasks.append(
+            analyze_priority(
+                review.content,
+                instructions=request.priority_instructions,
             )
+        )
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # 5. Merge AI results into review objects
     analyzed = []
@@ -162,8 +161,19 @@ async def fetch_and_analyze(request: FetchAndAnalyzeRequest):
         prio_result = results[i * 2 + 1]   # priority call
 
         # Graceful degradation on errors
-        sentiment = sent_result if isinstance(sent_result, str) else "neutral"
-        priority = prio_result if isinstance(prio_result, str) else "low"
+        if isinstance(sent_result, Exception):
+            logger.error("Sentiment analysis failed for review %s: %s", review.review_id, sent_result)
+            sentiment = "neutral"
+        else:
+            sentiment = sent_result
+            logger.info("Review %s sentiment=%s content=%.60s", review.review_id, sentiment, review.content)
+
+        if isinstance(prio_result, Exception):
+            logger.error("Priority analysis failed for review %s: %s", review.review_id, prio_result)
+            priority = "low"
+        else:
+            priority = prio_result
+            logger.info("Review %s priority=%s", review.review_id, priority)
 
         analyzed.append(
             AnalyzedReviewResponse(
