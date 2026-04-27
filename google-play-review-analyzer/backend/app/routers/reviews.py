@@ -17,7 +17,7 @@ from app.schemas.api import (
 )
 from app.core.config import settings
 from app.services.scraper import extract_app_id, fetch_reviews_paginated, get_app_name
-from app.services.groq_service import analyze_sentiment, analyze_priority
+from app.services.groq_service import analyze_sentiment, analyze_priority, generate_reply as generate_reply_service
 
 logger = logging.getLogger(__name__)
 
@@ -195,16 +195,15 @@ async def fetch_and_analyze(request: FetchAndAnalyzeRequest):
 
 
 @router.post("/generate-reply", response_model=GenerateReplyResponse)
-def generate_reply(request: GenerateReplyRequest):
+async def generate_reply(request: GenerateReplyRequest):
     logger.info("user_name: %s", request.user_name)
     logger.info("review: %s", request.review_content)
+    logger.info("reply_instructions: %s", request.reply_instructions)
 
-    # TODO: Replace with actual Groq-powered reply generation
-    reply = (
-        f"Olá, {request.user_name.split()[0]}! "
-        "Obrigado pelo seu feedback. "
-        "Sua opinião é muito importante para nós "
-        "e estamos trabalhando para melhorar continuamente."
+    reply = await generate_reply_service(
+        user_name=request.user_name,
+        content=request.review_content,
+        instructions=request.reply_instructions,
     )
 
     return GenerateReplyResponse(reply=reply)

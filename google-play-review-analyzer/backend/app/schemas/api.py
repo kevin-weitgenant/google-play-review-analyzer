@@ -52,6 +52,28 @@ PRIORITY_PROMPT_FOOTER = (
 
 DEFAULT_PRIORITY_INSTRUCTIONS = ""
 
+REPLY_PROMPT_HEADER = (
+    "You are a professional app developer responding to Google Play Store reviews. "
+    "Write a concise, helpful reply to the review below.\n\n"
+    "Rules:\n"
+    "- Start by greeting the user by their first name.\n"
+    "- Acknowledge their feedback before offering any explanation.\n"
+    "- Be empathetic and direct. Avoid generic responses.\n"
+    "- If it's a bug or technical issue, mention that the team has been notified.\n"
+    "- If it's positive feedback, thank them sincerely.\n"
+    "- Keep the response under 3 sentences.\n"
+    "- Write in the same language as the review."
+)
+
+REPLY_PROMPT_FOOTER = (
+    'Respond with a JSON object: {{"reply": "your response here"}}\n\n'
+    "Reviewer: {user_name}\n"
+    "Review:\n"
+    "{content}"
+)
+
+DEFAULT_REPLY_INSTRUCTIONS = ""
+
 
 # ---------------------------------------------------------------------------
 # Scraper-only schemas (existing)
@@ -157,6 +179,10 @@ class GenerateReplyRequest(BaseModel):
     review_content: str = Field(
         ...,
         description="The review text.",
+    )
+    reply_instructions: str = Field(
+        default="",
+        description="Optional extra instructions for reply generation.",
     )
 
 

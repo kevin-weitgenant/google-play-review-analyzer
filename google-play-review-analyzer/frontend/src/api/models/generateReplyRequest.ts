@@ -10,4 +10,6 @@ export interface GenerateReplyRequest {
   user_name: string;
   /** The review text. */
   review_content: string;
+  /** Optional extra instructions for reply generation. */
+  reply_instructions?: string;
 }

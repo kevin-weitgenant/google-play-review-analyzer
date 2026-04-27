@@ -10,13 +10,11 @@ type Priority = "high" | "medium" | "low"
 interface AIConfig {
   priorityInstructions: string
   sentimentInstructions: string
-  replyInstructions: string
 }
 
 const DEFAULT_CONFIG: AIConfig = {
   priorityInstructions: "",
   sentimentInstructions: "",
-  replyInstructions: "",
 }
 
 const SENTIMENT_LABELS: Record<Sentiment, string> = {
@@ -91,10 +89,11 @@ function getInitials(name: string): string {
     .toUpperCase()
 }
 
-async function generateReply(review: Review): Promise<string> {
+async function generateReply(review: Review, instructions: string): Promise<string> {
   const request: GenerateReplyRequest = {
     user_name: review.user_name,
     review_content: review.content,
+    reply_instructions: instructions,
   }
   const api = getReviews()
   const response = await api.generateReplyApiReviewsGenerateReplyPost(request)
@@ -112,6 +111,7 @@ export function DesignKanban() {
   const [copied, setCopied] = useState(false)
   const [generatingId, setGeneratingId] = useState<string | null>(null)
   const [editedResponses, setEditedResponses] = useState<Record<string, string>>({})
+  const [replyDraft, setReplyDraft] = useState("")
   const [config, setConfig] = useState<AIConfig>(DEFAULT_CONFIG)
   const [showAdvanced, setShowAdvanced] = useState(false)
 
@@ -168,11 +168,11 @@ export function DesignKanban() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handleGenerateResponse = async (reviewId: string) => {
+  const handleGenerateResponse = async (reviewId: string, instructions: string = "") => {
     const review = reviews.find((r) => r.review_id === reviewId)
     if (!review) return
     setGeneratingId(reviewId)
-    const generated = await generateReply(review)
+    const generated = await generateReply(review, instructions)
     setReviews((prev) => prev.map((r) => (r.review_id === reviewId ? { ...r, ai_response: generated } : r)))
     setGeneratingId(null)
   }
@@ -487,45 +487,6 @@ export function DesignKanban() {
                   />
                 </div>
 
-                {/* Reply instructions */}
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: "#374151",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Como gerar respostas?
-                  </label>
-                  <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 6, lineHeight: 1.4 }}>
-                    Diretrizes para respostas automaticas. Essa funcionalidade sera implementada em breve.
-                  </div>
-                  <textarea
-                    value={config.replyInstructions}
-                    onChange={(e) => setConfig((prev) => ({ ...prev, replyInstructions: e.target.value }))}
-                    placeholder="Ex: Sempre inicie pelo nome do usuario. Seja empetico e direto..."
-                    rows={3}
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      border: "1.5px solid #E5E7EB",
-                      borderRadius: 8,
-                      fontSize: 13,
-                      lineHeight: 1.5,
-                      color: "#374151",
-                      outline: "none",
-                      resize: "vertical",
-                      fontFamily: "inherit",
-                      boxSizing: "border-box",
-                      transition: "border-color 0.15s",
-                    }}
-                    onFocus={(e) => (e.target.style.borderColor = "#111827")}
-                    onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
-                  />
-                </div>
               </div>
             )}
           </div>
@@ -914,28 +875,55 @@ export function DesignKanban() {
                     style={{
                       border: "1.5px dashed #E5E7EB",
                       borderRadius: 10,
-                      padding: "24px 20px",
+                      padding: "20px",
                       display: "flex",
                       flexDirection: "column",
-                      alignItems: "center",
-                      gap: 12,
+                      gap: 14,
                       background: "#FAFAFA",
                     }}
                   >
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 4 }}>
-                        Nenhuma resposta gerada ainda
-                      </div>
-                      <div style={{ fontSize: 12, color: "#9CA3AF", lineHeight: 1.5 }}>
-                        Clique no botao abaixo para gerar uma resposta com IA baseada nas suas configuracoes.
-                      </div>
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: "#6B7280",
+                          marginBottom: 4,
+                        }}
+                      >
+                        Instrucoes para a resposta (opcional)
+                      </label>
+                      <textarea
+                        value={replyDraft}
+                        onChange={(e) => setReplyDraft(e.target.value)}
+                        placeholder="Ex: Sempre inicie pelo nome do usuario. Seja empatico e direto..."
+                        rows={3}
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          border: "1.5px solid #E5E7EB",
+                          borderRadius: 8,
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                          color: "#374151",
+                          outline: "none",
+                          resize: "vertical",
+                          fontFamily: "inherit",
+                          boxSizing: "border-box",
+                          transition: "border-color 0.15s",
+                        }}
+                        onFocus={(e) => (e.target.style.borderColor = "#111827")}
+                        onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
+                      />
                     </div>
                     <button
-                      onClick={() => handleGenerateResponse(openReview.review_id)}
+                      onClick={() => handleGenerateResponse(openReview.review_id, replyDraft)}
                       disabled={generatingId === openReview.review_id}
                       style={{
                         display: "flex",
                         alignItems: "center",
+                        justifyContent: "center",
                         gap: 7,
                         padding: "9px 18px",
                         borderRadius: 8,
@@ -973,7 +961,7 @@ export function DesignKanban() {
                         delete next[openReview.review_id]
                         return next
                       })
-                      handleGenerateResponse(openReview.review_id)
+                      handleGenerateResponse(openReview.review_id, replyDraft)
                     }}
                     disabled={generatingId === openReview.review_id}
                     style={{

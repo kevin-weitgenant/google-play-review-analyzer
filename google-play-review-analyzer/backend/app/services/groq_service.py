@@ -10,6 +10,8 @@ from app.schemas.api import (
     SENTIMENT_PROMPT_FOOTER,
     PRIORITY_PROMPT_HEADER,
     PRIORITY_PROMPT_FOOTER,
+    REPLY_PROMPT_HEADER,
+    REPLY_PROMPT_FOOTER,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,3 +157,67 @@ async def analyze_priority(
         logger.warning("Unexpected priority value: %s – defaulting to low", priority)
         priority = "low"
     return priority
+
+
+REPLY_JSON_SCHEMA = ResponseFormatResponseFormatJsonSchema(
+    type="json_schema",
+    json_schema={
+        "name": "reply",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "reply": {
+                    "type": "string",
+                }
+            },
+            "required": ["reply"],
+            "additionalProperties": False,
+        },
+    },
+)
+
+
+async def generate_reply(
+    user_name: str,
+    content: str,
+    instructions: str = "",
+) -> str:
+    """Generate a developer reply to a review. Returns the reply text.
+
+    Args:
+        user_name: Name of the reviewer.
+        content: The review text.
+        instructions: Optional extra instructions from the frontend.
+    """
+    parts = [REPLY_PROMPT_HEADER]
+    if instructions:
+        parts.append(instructions)
+    parts.append(REPLY_PROMPT_FOOTER.format(user_name=user_name, content=content))
+    user_message = "\n\n".join(parts)
+
+    logger.info(
+        "Groq reply REQUEST  model=%s  user_name=%s",
+        settings.groq_model,
+        user_name,
+    )
+
+    response = await client.chat.completions.create(
+        model=settings.groq_model,
+        messages=[{"role": "user", "content": user_message}],
+        temperature=0.7,
+        max_tokens=300,
+        response_format=REPLY_JSON_SCHEMA,
+    )
+
+    raw = response.choices[0].message.content or "{}"
+    logger.info(
+        "Groq reply RESPONSE  id=%s  model=%s  raw=%s  usage=%s  finish_reason=%s",
+        response.id,
+        response.model,
+        raw,
+        response.usage,
+        response.choices[0].finish_reason,
+    )
+    result = json.loads(raw)
+    return result.get("reply", "")
