@@ -25,7 +25,7 @@ SENTIMENT_PROMPT_HEADER = (
 )
 
 SENTIMENT_PROMPT_FOOTER = (
-    'Respond with a JSON object: {"sentiment": "positive"|"neutral"|"negative"}\n\n'
+    'Respond with a JSON object: {{"sentiment": "positive"|"neutral"|"negative"}}\n\n'
     "Review:\n"
     "{content}"
 )
@@ -45,7 +45,7 @@ PRIORITY_PROMPT_HEADER = (
 )
 
 PRIORITY_PROMPT_FOOTER = (
-    'Respond with a JSON object: {"priority": "high"|"medium"|"low"}\n\n'
+    'Respond with a JSON object: {{"priority": "high"|"medium"|"low"}}\n\n'
     "Review:\n"
     "{content}"
 )
